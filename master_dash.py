@@ -6,8 +6,8 @@ import time
 import yfinance as yf
 
 # --- 1. SETUP ---
-client_id = str[st.secrets["client_id"]]
-access_token = str[st.secrets["access_token"]]
+client_id = str(st.secrets["client_id"])
+access_token = str(st.secrets["access_token"])
 
 st.set_page_config(layout="wide")
 st.title("🎯 Ultimate Options Decoding Dashboard")
