@@ -29,7 +29,7 @@ if st.session_state.daily_token is None:
             
     st.stop() 
 
-# --- 2. MAIN DASHBOARD ---
+# --- 2. MAIN DASHBOARD & INDEX SELECTOR ---
 access_token = st.session_state.daily_token
 st.title("🎯 Ultimate Options Decoding Dashboard")
 
@@ -69,10 +69,9 @@ def fetch_global_prices():
     return results
 
 prices = fetch_global_prices()
-nifty_spot = prices['Nifty 50']['price'] 
 
 m1, m2, m3, m4, m5 = st.columns(5)
-m1.metric("Nifty 50", f"{nifty_spot:,.2f}", f"{prices['Nifty 50']['change']:.2f}")
+m1.metric("Nifty 50", f"{prices['Nifty 50']['price']:,.2f}", f"{prices['Nifty 50']['change']:.2f}")
 m2.metric("Bank Nifty", f"{prices['Bank Nifty']['price']:,.2f}", f"{prices['Bank Nifty']['change']:.2f}")
 m3.metric("Crude Oil (WTI)", f"${prices['Crude Oil']['price']:.2f}", f"{prices['Crude Oil']['change']:.2f}")
 m4.metric("USD / INR", f"₹{prices['USD/INR']['price']:.3f}", f"{prices['USD/INR']['change']:.3f}")
@@ -80,13 +79,22 @@ m5.metric("Dow Futures", f"{prices['Dow Futures']['price']:,.2f}", f"{prices['Do
 
 st.divider()
 
-# --- 4. OPTIONS DATA FETCH ---
+# --- 4. OPTIONS DATA FETCH (NIFTY OR BANK NIFTY) ---
+st.write("### ⚙️ Select Trading Index")
+index_choice = st.radio("Target Index:", ["Nifty 50", "Bank Nifty"], horizontal=True)
+
 dhan_context = DhanContext(client_id, access_token)
 dhan = dhanhq(dhan_context)
-nifty_id = 13
 segment = "IDX_I"
 
-expiry_response = dhan.expiry_list(under_security_id=nifty_id, under_exchange_segment=segment)
+if index_choice == "Nifty 50":
+    target_id = 13
+    target_spot = prices['Nifty 50']['price']
+else:
+    target_id = 25  # Bank Nifty
+    target_spot = prices['Bank Nifty']['price']
+
+expiry_response = dhan.expiry_list(under_security_id=target_id, under_exchange_segment=segment)
 
 if expiry_response.get("status") == "success":
     try:
@@ -94,7 +102,7 @@ if expiry_response.get("status") == "success":
     except KeyError:
         nearest_expiry = expiry_response['data'][0] 
         
-    chain_response = dhan.option_chain(under_security_id=nifty_id, under_exchange_segment=segment, expiry=nearest_expiry)
+    chain_response = dhan.option_chain(under_security_id=target_id, under_exchange_segment=segment, expiry=nearest_expiry)
     
     if chain_response.get("status") == "success":
         data_block = chain_response.get('data', {})
@@ -167,7 +175,7 @@ if expiry_response.get("status") == "success":
             if 'history' not in st.session_state:
                 st.session_state.history = []
 
-            current_snapshot = {'time': time.time(), 'pcr': pcr, 'price': nifty_spot}
+            current_snapshot = {'time': time.time(), 'pcr': pcr, 'price': target_spot}
             st.session_state.history.append(current_snapshot)
 
             if len(st.session_state.history) > 120:
@@ -188,20 +196,20 @@ if expiry_response.get("status") == "success":
             if past_snapshot:
                 if 'price' in past_snapshot:
                     pcr_change = pcr - past_snapshot['pcr']
-                    price_change = nifty_spot - past_snapshot['price']
+                    price_change = target_spot - past_snapshot['price']
                     
                     if price_change > 10 and pcr_change > 0.02:
                         ai_verdict = "Aggressive Bullish (Buy Breakouts) 🟢"
-                        ai_reason = f"Price is rising (+{int(price_change)} pts) AND Put writers are aggressively supporting the move. Classic uptrend."
+                        ai_reason = f"Price is rising AND Put writers are aggressively supporting the move. Classic uptrend."
                     elif price_change > 10 and pcr_change < -0.02:
                         ai_verdict = "Bearish Divergence (BULL TRAP!) 🚨"
-                        ai_reason = f"Price is rising (+{int(price_change)} pts) BUT Call writers are heavily selling the top. Smart money is fading this rally. Watch for a sharp reversal downward."
+                        ai_reason = f"Price is rising BUT Call writers are heavily selling the top. Smart money is fading this rally. Watch for a sharp reversal downward."
                     elif price_change < -10 and pcr_change < -0.02:
                         ai_verdict = "Aggressive Bearish (Sell Breakdowns) 🔴"
-                        ai_reason = f"Price is dropping ({int(price_change)} pts) AND Call writers are pushing it down further. Classic downtrend."
+                        ai_reason = f"Price is dropping AND Call writers are pushing it down further. Classic downtrend."
                     elif price_change < -10 and pcr_change > 0.02:
                         ai_verdict = "Bullish Divergence (BEAR TRAP!) 🚨"
-                        ai_reason = f"Price is dropping ({int(price_change)} pts) BUT Put writers are aggressively defending the bottom. Smart money is buying this dip. Watch for a violent bounce."
+                        ai_reason = f"Price is dropping BUT Put writers are aggressively defending the bottom. Smart money is buying this dip. Watch for a violent bounce."
                     elif abs(price_change) <= 10:
                         ai_verdict = "No Trade Zone (Chop/Sideways) 🟡"
                         ai_reason = "Price is flat. Options writers are eating premium (Theta Decay). Highly dangerous for option buying right now."
@@ -218,15 +226,15 @@ if expiry_response.get("status") == "success":
             st.divider()
 
             # --- FILTER TARGET STRIKES ---
-            if nifty_spot > 10000:
-                atm_index = (df['Strike Price'] - nifty_spot).abs().idxmin()
+            if target_spot > 10000:
+                atm_index = (df['Strike Price'] - target_spot).abs().idxmin()
             else:
                 df['Total OI'] = df['Call OI (Resistance)'] + df['Put OI (Support)']
                 atm_index = df['Total OI'].idxmax()
                 
             df_filtered = df.iloc[max(0, atm_index-10) : atm_index+11]
             
-            st.write(f"### Nifty 50 Expiry: {nearest_expiry}")
+            st.write(f"### {index_choice} Expiry: {nearest_expiry}")
             
             col1, col2 = st.columns(2)
             col1.metric("Live Put-Call Ratio (PCR)", round(pcr, 2))
@@ -249,6 +257,9 @@ if expiry_response.get("status") == "success":
                     st.session_state.oi_baseline = df.copy()
                     st.session_state.baseline_time = datetime.now().strftime("%I:%M:%S %p")
                     st.rerun()
+                if st.button("🧹 Clear Baseline"):
+                    st.session_state.oi_baseline = None
+                    st.rerun()
 
             def highlight_danger_zone(row):
                 max_call_oi = df_filtered['Call OI (Resistance)'].max()
@@ -260,7 +271,7 @@ if expiry_response.get("status") == "success":
 
             with colB:
                 if st.session_state.oi_baseline is not None:
-                    st.success(f"Tracking institutional footprints since: {st.session_state.baseline_time}")
+                    st.success(f"Tracking institutional footprints since: {st.session_state.baseline_time}. (Clear baseline if switching index!)")
                     if '15m Call Change' in df_filtered.columns:
                         display_cols = ['Strike Price', 'Call OI (Resistance)', '15m Call Change', 'Call Trend', 'Put OI (Support)', '15m Put Change', 'Put Trend']
                         display_df = df_filtered[display_cols]
@@ -276,13 +287,11 @@ if expiry_response.get("status") == "success":
 
             st.dataframe(display_df.style.apply(highlight_danger_zone, axis=1), width='stretch')
             
-            # --- LIVE AI DECODER (GEMINI) ---
             # --- 7. THE GEMINI AI NEURAL NETWORK & CHATBOT ---
             st.divider()
-            st.subheader("🧠 Live AI Quant & Interactive Chat")
+            st.subheader(f"🧠 Live AI Quant & Interactive Chat ({index_choice})")
             
-            # 1. Prepare the FULL data payload (Total OI + Daily Trends + Intraday)
-            # We send the ATM strikes so the AI sees the entire market structure
+            # 1. Prepare the FULL data payload
             ai_context = display_df.copy()
             if 'Total OI' in ai_context.columns:
                 ai_context = ai_context.drop(columns=['Total OI'])
@@ -293,7 +302,7 @@ if expiry_response.get("status") == "success":
             if "chat_history" not in st.session_state:
                 st.session_state.chat_history = []
                 
-            # 3. The "Full Picture" Generator
+            # 3. The "Full Picture" Generator with MENTOR PROMPT
             if st.button("Generate Comprehensive Market Thesis 🔮"):
                 with st.spinner("Analyzing Macro Walls, Daily Trends, and Intraday Momentum..."):
                     try:
@@ -301,20 +310,22 @@ if expiry_response.get("status") == "success":
                         model = genai.GenerativeModel('gemini-2.5-flash') 
                         
                         system_prompt = f"""
-                        You are a ruthless, expert quantitative options trader. Look at this live Nifty Option Chain data. 
-                        This data includes Total OI (Macro), Daily Trends (compared to yesterday), and Intraday changes (if captured).
-                        
-                        Live Data:
+                        You are my elite quantitative trading partner and mentor. We are hunting institutional traps in the Indian options market.
+                        Here is the live Option Chain data for {index_choice} (Macro, Daily Trends, and 15m Momentum):
                         {data_string}
                         
-                        Give me a comprehensive intraday story in 3 short bullet points:
-                        1. Macro Picture: Where are the ultimate walls based on Total OI?
-                        2. Intraday Momentum: Based on the Trends and changes, who is winning today?
-                        3. Actionable Verdict: Are we trending, chopping, or reversing? What is the trade setup?
+                        Do NOT just read the numbers back to me like a calculator. I can already see the data on my screen. 
+                        I need your BRAIN. Read the psychology of the market makers. 
+                        
+                        Give me a strategic breakdown in plain, conversational English:
+                        1. The Trap: Where is the Smart Money setting the ceiling and the floor to crush retail premium?
+                        2. The Panic: Based on the trends (unwinding/buildup), who is currently surrendering?
+                        3. The Execution: As an option buyer, what is the exact trigger I should wait for before deploying capital?
+                        
+                        Talk to me like a real human trader sitting next to me on the desk. Be direct, candid, and highly strategic.
                         """
                         
                         response = model.generate_content(system_prompt)
-                        # Add the AI's thesis to the chat history
                         st.session_state.chat_history.append({"role": "assistant", "content": response.text})
                     except Exception as e:
                         st.error(f"AI Connection Error: {e}")
@@ -324,10 +335,9 @@ if expiry_response.get("status") == "success":
                 with st.chat_message(message["role"]):
                     st.markdown(message["content"])
 
-            # 5. Interactive Chat Input Box
+            # 5. Interactive Chat Input Box with MENTOR PROMPT
             if user_question := st.chat_input("Ask your AI Quant a specific question about the data..."):
                 
-                # Show the user's question on screen
                 st.chat_message("user").markdown(user_question)
                 st.session_state.chat_history.append({"role": "user", "content": user_question})
                 
@@ -337,19 +347,36 @@ if expiry_response.get("status") == "success":
                         model = genai.GenerativeModel('gemini-2.5-flash') 
                         
                         chat_prompt = f"""
-                        You are a quantitative options trading AI assisting a retail trader. 
-                        Here is the live Option Chain data for context:
+                        You are my elite quantitative trading partner and mentor. We are hunting institutional traps in the {index_choice} options market.
+                        
+                        Live Market Data Context:
                         {data_string}
                         
-                        The user asks: "{user_question}"
+                        The user (your trading partner) asks: "{user_question}"
                         
-                        Answer directly, concisely, and based ONLY on the data provided. Act as an expert institutional trader.
+                        CRITICAL INSTRUCTIONS:
+                        - Do NOT just summarize the data. I can read the numbers myself.
+                        - Think like a market maker. Where is the trap? Who is surrendering? 
+                        - Decode the psychology. If there is massive Short Buildup on Calls, tell me the Smart Money is aggressively capping the ceiling to crush retail buyers.
+                        - Speak to me conversationally, exactly like a human trading mentor sitting next to me at the desk. Be sharp, direct, and insightful. 
+                        - Answer the specific question asked, but always tie it back to the overarching institutional thesis.
                         """
                         
                         response = model.generate_content(chat_prompt)
                         
-                        # Show the AI's answer on screen
                         st.chat_message("assistant").markdown(response.text)
                         st.session_state.chat_history.append({"role": "assistant", "content": response.text})
                     except Exception as e:
                         st.error(f"Chat failed: {e}")
+
+        else:
+            st.error("Option chain data is empty.")
+    else:
+        st.error("Failed to fetch Option Chain.")
+else:
+    st.error("Failed to fetch Expiry Dates.")
+
+# --- AUTO-REFRESH ENGINE ---
+if auto_refresh:
+    time.sleep(30)
+    st.rerun()
