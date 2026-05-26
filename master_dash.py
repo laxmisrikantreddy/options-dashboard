@@ -277,53 +277,79 @@ if expiry_response.get("status") == "success":
             st.dataframe(display_df.style.apply(highlight_danger_zone, axis=1), width='stretch')
             
             # --- LIVE AI DECODER (GEMINI) ---
+            # --- 7. THE GEMINI AI NEURAL NETWORK & CHATBOT ---
             st.divider()
-            st.subheader("🔮 Gemini Neural Network: Trap Decoder")
+            st.subheader("🧠 Live AI Quant & Interactive Chat")
             
-            if st.session_state.oi_baseline is not None and '15m Call Change' in display_df.columns:
-                if st.button("Generate Institutional Thesis"):
-                    with st.spinner("Connecting to Google AI Studio..."):
-                        try:
-                            genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-                            model = model = genai.GenerativeModel('gemini-2.5-flash')
-                            
-                            # Prepare exact context for the model
-                            ai_context = display_df[['Strike Price', 'Call OI (Resistance)', '15m Call Change', 'Put OI (Support)', '15m Put Change']].dropna()
-                            ai_context = ai_context.sort_values(by='Call OI (Resistance)', ascending=False).head(10)
-                            data_string = ai_context.to_csv(index=False)
-                            
-                            prompt = f"""
-                            You are a ruthless, expert quantitative options trader. Look at this live snapshot of Nifty Option Chain Open Interest (OI).
-                            
-                            Data Columns: Strike Price, Total Call OI, 15m Call Change, Total Put OI, 15m Put Change.
-                            
-                            Here is the data:
-                            {data_string}
-                            
-                            Decode the market for an intraday option buyer in exactly 3 short paragraphs:
-                            1. The Mega-Walls: Where is the absolute macro ceiling and floor?
-                            2. The Active Battlefield: Based on the 15m changes, where are institutions aggressively deploying capital right now?
-                            3. The Verdict: Is there a trap being set? Who is surrendering? Give me a final trade thesis (e.g., Wait for Put surrender at X, or Buy Call breakouts).
-                            
-                            Be direct, analytical, and do not use generic fluff.
-                            """
-                            
-                            response = model.generate_content(prompt)
-                            st.info(response.text)
-                            
-                        except Exception as e:
-                            st.error(f"Brain connection failed: Check your GEMINI_API_KEY in Streamlit Secrets. Error: {e}")
-            else:
-                st.warning("Capture a baseline first so the AI has 15-minute intraday data to decode.")
+            # 1. Prepare the FULL data payload (Total OI + Daily Trends + Intraday)
+            # We send the ATM strikes so the AI sees the entire market structure
+            ai_context = display_df.copy()
+            if 'Total OI' in ai_context.columns:
+                ai_context = ai_context.drop(columns=['Total OI'])
+            
+            data_string = ai_context.to_csv(index=False)
+            
+            # 2. Setup Chat History in Memory
+            if "chat_history" not in st.session_state:
+                st.session_state.chat_history = []
+                
+            # 3. The "Full Picture" Generator
+            if st.button("Generate Comprehensive Market Thesis 🔮"):
+                with st.spinner("Analyzing Macro Walls, Daily Trends, and Intraday Momentum..."):
+                    try:
+                        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+                        model = genai.GenerativeModel('gemini-2.5-flash') 
+                        
+                        system_prompt = f"""
+                        You are a ruthless, expert quantitative options trader. Look at this live Nifty Option Chain data. 
+                        This data includes Total OI (Macro), Daily Trends (compared to yesterday), and Intraday changes (if captured).
+                        
+                        Live Data:
+                        {data_string}
+                        
+                        Give me a comprehensive intraday story in 3 short bullet points:
+                        1. Macro Picture: Where are the ultimate walls based on Total OI?
+                        2. Intraday Momentum: Based on the Trends and changes, who is winning today?
+                        3. Actionable Verdict: Are we trending, chopping, or reversing? What is the trade setup?
+                        """
+                        
+                        response = model.generate_content(system_prompt)
+                        # Add the AI's thesis to the chat history
+                        st.session_state.chat_history.append({"role": "assistant", "content": response.text})
+                    except Exception as e:
+                        st.error(f"AI Connection Error: {e}")
 
-        else:
-            st.error("Option chain data is empty.")
-    else:
-        st.error("Failed to fetch Option Chain.")
-else:
-    st.error("Failed to fetch Expiry Dates.")
+            # 4. Display the Chat History on the Screen
+            for message in st.session_state.chat_history:
+                with st.chat_message(message["role"]):
+                    st.markdown(message["content"])
 
-# --- AUTO-REFRESH ENGINE ---
-if auto_refresh:
-    time.sleep(30)
-    st.rerun()
+            # 5. Interactive Chat Input Box
+            if user_question := st.chat_input("Ask your AI Quant a specific question about the data..."):
+                
+                # Show the user's question on screen
+                st.chat_message("user").markdown(user_question)
+                st.session_state.chat_history.append({"role": "user", "content": user_question})
+                
+                with st.spinner("Decoding data..."):
+                    try:
+                        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+                        model = genai.GenerativeModel('gemini-2.5-flash') 
+                        
+                        chat_prompt = f"""
+                        You are a quantitative options trading AI assisting a retail trader. 
+                        Here is the live Option Chain data for context:
+                        {data_string}
+                        
+                        The user asks: "{user_question}"
+                        
+                        Answer directly, concisely, and based ONLY on the data provided. Act as an expert institutional trader.
+                        """
+                        
+                        response = model.generate_content(chat_prompt)
+                        
+                        # Show the AI's answer on screen
+                        st.chat_message("assistant").markdown(response.text)
+                        st.session_state.chat_history.append({"role": "assistant", "content": response.text})
+                    except Exception as e:
+                        st.error(f"Chat failed: {e}")
