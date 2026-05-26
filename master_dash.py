@@ -6,17 +6,14 @@ from datetime import datetime
 import time
 import yfinance as yf
 
-st.set_page_config(layout="wide")
+st.set_page_config(layout="wide", page_title="Ultimate Options Dashboard")
 
 # --- 1. THE LOGIN SCREEN ---
-# Your Client ID never changes, so we keep pulling it from secrets
 client_id = str(st.secrets["client_id"])
 
-# We create a temporary memory bank just for today's token
 if 'daily_token' not in st.session_state:
     st.session_state.daily_token = None
 
-# If there is no token for today, show the login screen and STOP
 if st.session_state.daily_token is None:
     st.title("🔒 Terminal Locked")
     st.info("SEBI regulations require a fresh API token every 24 hours.")
@@ -30,12 +27,10 @@ if st.session_state.daily_token is None:
         else:
             st.error("Token cannot be empty.")
             
-    st.stop() # Prevents the rest of the dashboard from loading until unlocked
-
-# If the code reaches here, the terminal is unlocked!
-access_token = st.session_state.daily_token
+    st.stop() 
 
 # --- 2. MAIN DASHBOARD ---
+access_token = st.session_state.daily_token
 st.title("🎯 Ultimate Options Decoding Dashboard")
 
 top_col1, top_col2 = st.columns([3, 1])
@@ -47,9 +42,7 @@ with top_col2:
 
 st.divider()
 
-# (KEEP ALL THE REST OF YOUR GLOBAL MACRO AND OPTIONS DATA CODE BELOW THIS EXACTLY AS IT IS)
-
-# --- 2. GLOBAL MACRO TICKER TAPE ---
+# --- 3. GLOBAL MACRO TICKER TAPE ---
 @st.cache_data(ttl=25)
 def fetch_global_prices():
     symbols = {
@@ -87,7 +80,7 @@ m5.metric("Dow Futures", f"{prices['Dow Futures']['price']:,.2f}", f"{prices['Do
 
 st.divider()
 
-# --- 3. OPTIONS DATA FETCH ---
+# --- 4. OPTIONS DATA FETCH ---
 dhan_context = DhanContext(client_id, access_token)
 dhan = dhanhq(dhan_context)
 nifty_id = 13
@@ -149,10 +142,21 @@ if expiry_response.get("status") == "success":
                 
             df = pd.DataFrame(clean_data)
             df = df.sort_values('Strike Price').reset_index(drop=True)
-            
-            # THE FIX: Resetting the row index numbers so the camera aims perfectly
             df = df[(df['Call OI (Resistance)'] > 0) | (df['Put OI (Support)'] > 0)].reset_index(drop=True)
-            
+
+            # --- THE TIME MACHINE: BACKGROUND CALCULATION ---
+            if 'oi_baseline' not in st.session_state:
+                st.session_state.oi_baseline = None
+                st.session_state.baseline_time = None
+
+            if st.session_state.oi_baseline is not None:
+                try:
+                    df['15m Call Change'] = df['Call OI (Resistance)'] - st.session_state.oi_baseline['Call OI (Resistance)']
+                    df['15m Put Change'] = df['Put OI (Support)'] - st.session_state.oi_baseline['Put OI (Support)']
+                except Exception:
+                    pass # Wait for user to resync if data shifts
+
+            # --- HEURISTIC AI & METRICS ---
             total_call_oi = df['Call OI (Resistance)'].sum()
             total_put_oi = df['Put OI (Support)'].sum()
             pcr = total_put_oi / total_call_oi if total_call_oi > 0 else 0
@@ -160,7 +164,6 @@ if expiry_response.get("status") == "success":
             resistance_strike = df.loc[df['Call OI (Resistance)'].idxmax()]['Strike Price']
             support_strike = df.loc[df['Put OI (Support)'].idxmax()]['Strike Price']
 
-            # --- 4. THE AI LOGIC ENGINE ---
             if 'history' not in st.session_state:
                 st.session_state.history = []
 
@@ -211,10 +214,10 @@ if expiry_response.get("status") == "success":
             else:
                 market_insight = f"🔍 **Market Structure:** Normal trading range established with a {int(resistance_strike - support_strike)} point spread."
 
-            st.info(f"### 🧠 AI Analyst: {ai_verdict}\n**Market Thesis:** {ai_reason}\n\n{market_insight}\n\n* **Strongest Support:** {int(support_strike)}\n* **Strongest Resistance:** {int(resistance_strike)}")
+            st.info(f"### ⚙️ Trend Logic Engine: {ai_verdict}\n**Market Thesis:** {ai_reason}\n\n{market_insight}\n\n* **Strongest Support:** {int(support_strike)}\n* **Strongest Resistance:** {int(resistance_strike)}")
             st.divider()
 
-            # --- 5. THE CHARTS (YAHOO SPOT TARGETING) ---
+            # --- FILTER TARGET STRIKES ---
             if nifty_spot > 10000:
                 atm_index = (df['Strike Price'] - nifty_spot).abs().idxmin()
             else:
@@ -236,12 +239,83 @@ if expiry_response.get("status") == "success":
             st.write("### Open Interest Build-up (Active Strikes)")
             st.bar_chart(df_filtered.set_index("Strike Price")[["Call OI (Resistance)", "Put OI (Support)"]], color=["#ff4b4b", "#00ff00"])
             
-            st.write("### 🔬 Advanced Option Chain Decoder")
-            if 'Total OI' in df_filtered.columns:
-                st.dataframe(df_filtered.drop(columns=['Total OI']), width='stretch')
-            else:
-                st.dataframe(df_filtered, width='stretch')
+            # --- ADVANCED OPTION CHAIN (TIME MACHINE UI) ---
+            st.divider()
+            st.write("### 🔬 Advanced Option Chain & Intraday Tracker")
             
+            colA, colB = st.columns([1, 3])
+            with colA:
+                if st.button("📸 Capture 15m Baseline"):
+                    st.session_state.oi_baseline = df.copy()
+                    st.session_state.baseline_time = datetime.now().strftime("%I:%M:%S %p")
+                    st.rerun()
+
+            def highlight_danger_zone(row):
+                max_call_oi = df_filtered['Call OI (Resistance)'].max()
+                max_put_oi = df_filtered['Put OI (Support)'].max()
+
+                if row['Call OI (Resistance)'] == max_call_oi: return ['background-color: #3b0000'] * len(row)
+                elif row['Put OI (Support)'] == max_put_oi: return ['background-color: #003b05'] * len(row)
+                else: return [''] * len(row)
+
+            with colB:
+                if st.session_state.oi_baseline is not None:
+                    st.success(f"Tracking institutional footprints since: {st.session_state.baseline_time}")
+                    if '15m Call Change' in df_filtered.columns:
+                        display_cols = ['Strike Price', 'Call OI (Resistance)', '15m Call Change', 'Call Trend', 'Put OI (Support)', '15m Put Change', 'Put Trend']
+                        display_df = df_filtered[display_cols]
+                    else:
+                        display_df = df_filtered
+                else:
+                    st.warning("Click the camera button to start tracking 15-minute institutional shifts.")
+                    display_df = df_filtered
+
+            # Drop 'Total OI' if it exists before display to keep UI clean
+            if 'Total OI' in display_df.columns:
+                display_df = display_df.drop(columns=['Total OI'])
+
+            st.dataframe(display_df.style.apply(highlight_danger_zone, axis=1), width='stretch')
+            
+            # --- LIVE AI DECODER (GEMINI) ---
+            st.divider()
+            st.subheader("🔮 Gemini Neural Network: Trap Decoder")
+            
+            if st.session_state.oi_baseline is not None and '15m Call Change' in display_df.columns:
+                if st.button("Generate Institutional Thesis"):
+                    with st.spinner("Connecting to Google AI Studio..."):
+                        try:
+                            genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+                            model = genai.GenerativeModel('gemini-1.5-flash') 
+                            
+                            # Prepare exact context for the model
+                            ai_context = display_df[['Strike Price', 'Call OI (Resistance)', '15m Call Change', 'Put OI (Support)', '15m Put Change']].dropna()
+                            ai_context = ai_context.sort_values(by='Call OI (Resistance)', ascending=False).head(10)
+                            data_string = ai_context.to_csv(index=False)
+                            
+                            prompt = f"""
+                            You are a ruthless, expert quantitative options trader. Look at this live snapshot of Nifty Option Chain Open Interest (OI).
+                            
+                            Data Columns: Strike Price, Total Call OI, 15m Call Change, Total Put OI, 15m Put Change.
+                            
+                            Here is the data:
+                            {data_string}
+                            
+                            Decode the market for an intraday option buyer in exactly 3 short paragraphs:
+                            1. The Mega-Walls: Where is the absolute macro ceiling and floor?
+                            2. The Active Battlefield: Based on the 15m changes, where are institutions aggressively deploying capital right now?
+                            3. The Verdict: Is there a trap being set? Who is surrendering? Give me a final trade thesis (e.g., Wait for Put surrender at X, or Buy Call breakouts).
+                            
+                            Be direct, analytical, and do not use generic fluff.
+                            """
+                            
+                            response = model.generate_content(prompt)
+                            st.info(response.text)
+                            
+                        except Exception as e:
+                            st.error(f"Brain connection failed: Check your GEMINI_API_KEY in Streamlit Secrets. Error: {e}")
+            else:
+                st.warning("Capture a baseline first so the AI has 15-minute intraday data to decode.")
+
         else:
             st.error("Option chain data is empty.")
     else:
@@ -249,7 +323,7 @@ if expiry_response.get("status") == "success":
 else:
     st.error("Failed to fetch Expiry Dates.")
 
-# --- 6. THE AUTO-REFRESH ENGINE ---
+# --- AUTO-REFRESH ENGINE ---
 if auto_refresh:
     time.sleep(30)
     st.rerun()
