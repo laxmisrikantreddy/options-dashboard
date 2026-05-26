@@ -97,8 +97,8 @@ elif index_choice == "Bank Nifty":
     target_spot = prices['Bank Nifty']['price']
 else:
     # Sensex is on the BSE exchange
-    target_id = 51  
-    segment = "BSE_EQ"  
+    target_id = 1  
+    segment = "BSE_OPT"  
     target_spot = prices['Sensex']['price']
 
 expiry_response = dhan.expiry_list(under_security_id=target_id, under_exchange_segment=segment)
