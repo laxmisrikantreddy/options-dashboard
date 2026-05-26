@@ -29,7 +29,7 @@ if st.session_state.daily_token is None:
             
     st.stop() 
 
-# --- 2. MAIN DASHBOARD & INDEX SELECTOR ---
+# --- 2. MAIN DASHBOARD ---
 access_token = st.session_state.daily_token
 st.title("🎯 Ultimate Options Decoding Dashboard")
 
@@ -48,9 +48,9 @@ def fetch_global_prices():
     symbols = {
         "Nifty 50": "^NSEI", 
         "Bank Nifty": "^NSEBANK", 
+        "Sensex": "^BSESN", 
         "Crude Oil": "CL=F", 
-        "USD/INR": "INR=X", 
-        "Dow Futures": "YM=F"
+        "USD/INR": "INR=X"
     }
     results = {}
     for name, ticker in symbols.items():
@@ -73,26 +73,33 @@ prices = fetch_global_prices()
 m1, m2, m3, m4, m5 = st.columns(5)
 m1.metric("Nifty 50", f"{prices['Nifty 50']['price']:,.2f}", f"{prices['Nifty 50']['change']:.2f}")
 m2.metric("Bank Nifty", f"{prices['Bank Nifty']['price']:,.2f}", f"{prices['Bank Nifty']['change']:.2f}")
-m3.metric("Crude Oil (WTI)", f"${prices['Crude Oil']['price']:.2f}", f"{prices['Crude Oil']['change']:.2f}")
-m4.metric("USD / INR", f"₹{prices['USD/INR']['price']:.3f}", f"{prices['USD/INR']['change']:.3f}")
-m5.metric("Dow Futures", f"{prices['Dow Futures']['price']:,.2f}", f"{prices['Dow Futures']['change']:.2f}")
+m3.metric("Sensex", f"{prices['Sensex']['price']:,.2f}", f"{prices['Sensex']['change']:.2f}")
+m4.metric("Crude Oil (WTI)", f"${prices['Crude Oil']['price']:.2f}", f"{prices['Crude Oil']['change']:.2f}")
+m5.metric("USD / INR", f"₹{prices['USD/INR']['price']:.3f}", f"{prices['USD/INR']['change']:.3f}")
 
 st.divider()
 
-# --- 4. OPTIONS DATA FETCH (NIFTY OR BANK NIFTY) ---
+# --- 4. OPTIONS DATA FETCH (3-WAY TOGGLE) ---
 st.write("### ⚙️ Select Trading Index")
-index_choice = st.radio("Target Index:", ["Nifty 50", "Bank Nifty"], horizontal=True)
+index_choice = st.radio("Target Index:", ["Nifty 50", "Bank Nifty", "Sensex"], horizontal=True)
 
 dhan_context = DhanContext(client_id, access_token)
 dhan = dhanhq(dhan_context)
-segment = "IDX_I"
 
+# Route the engine to the correct Exchange and ID
 if index_choice == "Nifty 50":
     target_id = 13
+    segment = "IDX_I"
     target_spot = prices['Nifty 50']['price']
-else:
-    target_id = 25  # Bank Nifty
+elif index_choice == "Bank Nifty":
+    target_id = 25
+    segment = "IDX_I"
     target_spot = prices['Bank Nifty']['price']
+else:
+    # Sensex is on the BSE exchange
+    target_id = 51  
+    segment = "BSE_EQ"  
+    target_spot = prices['Sensex']['price']
 
 expiry_response = dhan.expiry_list(under_security_id=target_id, under_exchange_segment=segment)
 
@@ -162,7 +169,7 @@ if expiry_response.get("status") == "success":
                     df['15m Call Change'] = df['Call OI (Resistance)'] - st.session_state.oi_baseline['Call OI (Resistance)']
                     df['15m Put Change'] = df['Put OI (Support)'] - st.session_state.oi_baseline['Put OI (Support)']
                 except Exception:
-                    pass # Wait for user to resync if data shifts
+                    pass 
 
             # --- HEURISTIC AI & METRICS ---
             total_call_oi = df['Call OI (Resistance)'].sum()
@@ -281,7 +288,6 @@ if expiry_response.get("status") == "success":
                     st.warning("Click the camera button to start tracking 15-minute institutional shifts.")
                     display_df = df_filtered
 
-            # Drop 'Total OI' if it exists before display to keep UI clean
             if 'Total OI' in display_df.columns:
                 display_df = display_df.drop(columns=['Total OI'])
 
@@ -291,18 +297,15 @@ if expiry_response.get("status") == "success":
             st.divider()
             st.subheader(f"🧠 Live AI Quant & Interactive Chat ({index_choice})")
             
-            # 1. Prepare the FULL data payload
             ai_context = display_df.copy()
             if 'Total OI' in ai_context.columns:
                 ai_context = ai_context.drop(columns=['Total OI'])
             
             data_string = ai_context.to_csv(index=False)
             
-            # 2. Setup Chat History in Memory
             if "chat_history" not in st.session_state:
                 st.session_state.chat_history = []
                 
-            # 3. The "Full Picture" Generator with MENTOR PROMPT
             if st.button("Generate Comprehensive Market Thesis 🔮"):
                 with st.spinner("Analyzing Macro Walls, Daily Trends, and Intraday Momentum..."):
                     try:
@@ -330,12 +333,10 @@ if expiry_response.get("status") == "success":
                     except Exception as e:
                         st.error(f"AI Connection Error: {e}")
 
-            # 4. Display the Chat History on the Screen
             for message in st.session_state.chat_history:
                 with st.chat_message(message["role"]):
                     st.markdown(message["content"])
 
-            # 5. Interactive Chat Input Box with MENTOR PROMPT
             if user_question := st.chat_input("Ask your AI Quant a specific question about the data..."):
                 
                 st.chat_message("user").markdown(user_question)
