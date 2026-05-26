@@ -5,6 +5,7 @@ from dhanhq import DhanContext, dhanhq
 from datetime import datetime
 import time
 import yfinance as yf
+import plotly.graph_objects as go
 
 st.set_page_config(layout="wide", page_title="Ultimate Options Dashboard")
 
@@ -86,20 +87,21 @@ index_choice = st.radio("Target Index:", ["Nifty 50", "Bank Nifty", "Sensex"], h
 dhan_context = DhanContext(client_id, access_token)
 dhan = dhanhq(dhan_context)
 
-# Route the engine to the correct Exchange and ID
 if index_choice == "Nifty 50":
     target_id = 13
     segment = "IDX_I"
     target_spot = prices['Nifty 50']['price']
+    yf_ticker = "^NSEI"
 elif index_choice == "Bank Nifty":
     target_id = 25
     segment = "IDX_I"
     target_spot = prices['Bank Nifty']['price']
+    yf_ticker = "^NSEBANK"
 else:
-    # Sensex is on the BSE exchange
-    target_id = 1  
-    segment = "BSE_OPT"  
+    target_id = 51  
+    segment = "IDX_I"  
     target_spot = prices['Sensex']['price']
+    yf_ticker = "^BSESN"
 
 expiry_response = dhan.expiry_list(under_security_id=target_id, under_exchange_segment=segment)
 
@@ -159,7 +161,6 @@ if expiry_response.get("status") == "success":
             df = df.sort_values('Strike Price').reset_index(drop=True)
             df = df[(df['Call OI (Resistance)'] > 0) | (df['Put OI (Support)'] > 0)].reset_index(drop=True)
 
-            # --- THE TIME MACHINE: BACKGROUND CALCULATION ---
             if 'oi_baseline' not in st.session_state:
                 st.session_state.oi_baseline = None
                 st.session_state.baseline_time = None
@@ -171,7 +172,6 @@ if expiry_response.get("status") == "success":
                 except Exception:
                     pass 
 
-            # --- HEURISTIC AI & METRICS ---
             total_call_oi = df['Call OI (Resistance)'].sum()
             total_put_oi = df['Put OI (Support)'].sum()
             pcr = total_put_oi / total_call_oi if total_call_oi > 0 else 0
@@ -207,32 +207,68 @@ if expiry_response.get("status") == "success":
                     
                     if price_change > 10 and pcr_change > 0.02:
                         ai_verdict = "Aggressive Bullish (Buy Breakouts) 🟢"
-                        ai_reason = f"Price is rising AND Put writers are aggressively supporting the move. Classic uptrend."
+                        ai_reason = f"Price is rising AND Put writers are aggressively supporting the move."
                     elif price_change > 10 and pcr_change < -0.02:
                         ai_verdict = "Bearish Divergence (BULL TRAP!) 🚨"
-                        ai_reason = f"Price is rising BUT Call writers are heavily selling the top. Smart money is fading this rally. Watch for a sharp reversal downward."
+                        ai_reason = f"Price is rising BUT Call writers are heavily selling the top."
                     elif price_change < -10 and pcr_change < -0.02:
                         ai_verdict = "Aggressive Bearish (Sell Breakdowns) 🔴"
-                        ai_reason = f"Price is dropping AND Call writers are pushing it down further. Classic downtrend."
+                        ai_reason = f"Price is dropping AND Call writers are pushing it down."
                     elif price_change < -10 and pcr_change > 0.02:
                         ai_verdict = "Bullish Divergence (BEAR TRAP!) 🚨"
-                        ai_reason = f"Price is dropping BUT Put writers are aggressively defending the bottom. Smart money is buying this dip. Watch for a violent bounce."
+                        ai_reason = f"Price is dropping BUT Put writers are aggressively defending the bottom."
                     elif abs(price_change) <= 10:
                         ai_verdict = "No Trade Zone (Chop/Sideways) 🟡"
-                        ai_reason = "Price is flat. Options writers are eating premium (Theta Decay). Highly dangerous for option buying right now."
+                        ai_reason = "Price is flat. Options writers are eating premium (Theta Decay)."
                 else:
                     st.session_state.history = []
 
-            market_insight = ""
-            if resistance_strike == support_strike:
-                market_insight = f"🚨 **SMART MONEY PIN:** Massive Short Straddle detected at {int(resistance_strike)}. Institutional sellers are capping both sides to crush premium. Wait for one side to break."
-            else:
-                market_insight = f"🔍 **Market Structure:** Normal trading range established with a {int(resistance_strike - support_strike)} point spread."
-
-            st.info(f"### ⚙️ Trend Logic Engine: {ai_verdict}\n**Market Thesis:** {ai_reason}\n\n{market_insight}\n\n* **Strongest Support:** {int(support_strike)}\n* **Strongest Resistance:** {int(resistance_strike)}")
+            st.info(f"### ⚙️ Trend Logic Engine: {ai_verdict}\n**Market Thesis:** {ai_reason}\n\n* **Strongest Support:** {int(support_strike)}\n* **Strongest Resistance:** {int(resistance_strike)}")
+            
+            # --- 5. THE SNIPER SCOPE (PRICE ACTION + OI WALLS) ---
+            st.divider()
+            st.subheader(f"📊 {index_choice} Live Price Action vs Institutional Walls")
+            
+            try:
+                # Fetch 5-minute Intraday Data
+                hist_data = yf.Ticker(yf_ticker).history(period="1d", interval="5m")
+                
+                if not hist_data.empty:
+                    fig = go.Figure(data=[go.Candlestick(
+                        x=hist_data.index,
+                        open=hist_data['Open'],
+                        high=hist_data['High'],
+                        low=hist_data['Low'],
+                        close=hist_data['Close'],
+                        name="Price Action"
+                    )])
+                    
+                    # Draw the OI Walls directly on the chart
+                    fig.add_hline(y=resistance_strike, line_dash="dash", line_color="red", 
+                                  annotation_text=f"Massive Call Wall: {int(resistance_strike)}", 
+                                  annotation_position="bottom right", annotation_font_color="red")
+                    
+                    fig.add_hline(y=support_strike, line_dash="dash", line_color="green", 
+                                  annotation_text=f"Massive Put Wall: {int(support_strike)}", 
+                                  annotation_position="top right", annotation_font_color="green")
+                    
+                    fig.update_layout(
+                        height=500, 
+                        margin=dict(l=0, r=0, t=30, b=0), 
+                        template="plotly_dark", 
+                        xaxis_rangeslider_visible=False,
+                        yaxis_title="Spot Price"
+                    )
+                    
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.warning("Waiting for market to open to generate live candles.")
+            except Exception as e:
+                st.warning(f"Could not load chart data: {e}")
+                
             st.divider()
 
-            # --- FILTER TARGET STRIKES ---
+            # --- 6. FILTER TARGET STRIKES & DATA TABLE ---
             if target_spot > 10000:
                 atm_index = (df['Strike Price'] - target_spot).abs().idxmin()
             else:
@@ -251,11 +287,6 @@ if expiry_response.get("status") == "success":
             elif pcr < 0.7: sentiment = "Oversold (Bullish Reversal Possible) 🟢"
             col2.metric("Overall Daily Sentiment", sentiment)
 
-            st.write("### Open Interest Build-up (Active Strikes)")
-            st.bar_chart(df_filtered.set_index("Strike Price")[["Call OI (Resistance)", "Put OI (Support)"]], color=["#ff4b4b", "#00ff00"])
-            
-            # --- ADVANCED OPTION CHAIN (TIME MACHINE UI) ---
-            st.divider()
             st.write("### 🔬 Advanced Option Chain & Intraday Tracker")
             
             colA, colB = st.columns([1, 3])
@@ -358,7 +389,7 @@ if expiry_response.get("status") == "success":
                         CRITICAL INSTRUCTIONS:
                         - Do NOT just summarize the data. I can read the numbers myself.
                         - Think like a market maker. Where is the trap? Who is surrendering? 
-                        - Decode the psychology. If there is massive Short Buildup on Calls, tell me the Smart Money is aggressively capping the ceiling to crush retail buyers.
+                        - Decode the psychology.
                         - Speak to me conversationally, exactly like a human trading mentor sitting next to me at the desk. Be sharp, direct, and insightful. 
                         - Answer the specific question asked, but always tie it back to the overarching institutional thesis.
                         """
