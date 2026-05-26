@@ -285,7 +285,7 @@ if expiry_response.get("status") == "success":
                     with st.spinner("Connecting to Google AI Studio..."):
                         try:
                             genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-                            model = genai.GenerativeModel('gemini-1.5-flash') 
+                            model = genai.GenerativeModel('gemini-pro')
                             
                             # Prepare exact context for the model
                             ai_context = display_df[['Strike Price', 'Call OI (Resistance)', '15m Call Change', 'Put OI (Support)', '15m Put Change']].dropna()
