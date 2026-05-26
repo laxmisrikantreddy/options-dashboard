@@ -5,11 +5,36 @@ from datetime import datetime
 import time
 import yfinance as yf
 
-# --- 1. SETUP ---
-client_id = str(st.secrets["client_id"])
-access_token = str(st.secrets["access_token"])
-
 st.set_page_config(layout="wide")
+
+# --- 1. THE LOGIN SCREEN ---
+# Your Client ID never changes, so we keep pulling it from secrets
+client_id = str(st.secrets["client_id"])
+
+# We create a temporary memory bank just for today's token
+if 'daily_token' not in st.session_state:
+    st.session_state.daily_token = None
+
+# If there is no token for today, show the login screen and STOP
+if st.session_state.daily_token is None:
+    st.title("🔒 Terminal Locked")
+    st.info("SEBI regulations require a fresh API token every 24 hours.")
+    
+    new_token = st.text_input("Paste Today's Dhan Access Token:", type="password")
+    
+    if st.button("Start Engine 🚀"):
+        if new_token:
+            st.session_state.daily_token = new_token
+            st.rerun() 
+        else:
+            st.error("Token cannot be empty.")
+            
+    st.stop() # Prevents the rest of the dashboard from loading until unlocked
+
+# If the code reaches here, the terminal is unlocked!
+access_token = st.session_state.daily_token
+
+# --- 2. MAIN DASHBOARD ---
 st.title("🎯 Ultimate Options Decoding Dashboard")
 
 top_col1, top_col2 = st.columns([3, 1])
@@ -20,6 +45,8 @@ with top_col2:
     auto_refresh = st.toggle("🔄 Live Auto-Refresh (30s)", value=True)
 
 st.divider()
+
+# (KEEP ALL THE REST OF YOUR GLOBAL MACRO AND OPTIONS DATA CODE BELOW THIS EXACTLY AS IT IS)
 
 # --- 2. GLOBAL MACRO TICKER TAPE ---
 @st.cache_data(ttl=25)
