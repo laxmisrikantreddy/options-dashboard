@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from dhanhq import dhanhq
+from dhanhq import DhanContext, dhanhq
 from datetime import datetime
 import time
 import yfinance as yf
@@ -87,7 +87,8 @@ m5.metric("Dow Futures", f"{prices['Dow Futures']['price']:,.2f}", f"{prices['Do
 st.divider()
 
 # --- 3. OPTIONS DATA FETCH ---
-dhan = dhanhq(client_id, access_token)
+dhan_context = DhanContext(client_id, access_token)
+dhan = dhanhq(dhan_context)
 nifty_id = 13
 segment = "IDX_I"
 
